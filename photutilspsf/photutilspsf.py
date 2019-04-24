@@ -61,21 +61,35 @@ def define_iterative_photometry_with_finder(image, sigma_psf=0.5, group_psf=1.5,
                                                 fitshape=fitshape,
                                                 aperture_radius=3)
 
-def wrapper_supplement_olivares_with_gaia_coordinates_on_tpf(tpf, path):
-    #supplement olivares table with gaia coordinates
+def wrapper_supplement_olivares_with_gaia_coordinates_on_tpf(TPF, path):
+    '''
+    Supplement olivares table with gaia coordinates.
+    Save the intermediate resulst
+    
+    Parameters:
+    ------------
+    TPF : KeplerTargetPixelFile
+    
+    path : str
+        path to Olivares members table
+     
+    Return:
+    -------
+    DataFrame with Olivares members and Gaia solution
+    '''
     members = read_fits_table(path)
-    center, radius = find_center_and_radius(tpf)
+    center, radius = find_center_and_radius(TPF)
     others = get_gaia_astrometry(center, radius)
     ontpf = merge_olivares_members_with_gaia_coordinates(members, others)
-    res = select_members_on_tpf(tpf, ontpf)
-    EPIC = tpf.targetid
-    C = tpf.campaign
-    #save to file
+    res = select_members_on_tpf(TPF, ontpf)
+    EPIC = TPF.targetid
+    C = TPF.campaign
+    #save intermediate to file
     with open('data/{}_{:02d}.csv'.format(EPIC, C), 'w') as f:
         f.write('# This is a concatenated table of Olivares+2019\n'
                 '# and Gaia DR2 coordinates on the TargetPixelFile\n'
                 '# of EPIC {} in campaign {}\n#\n'.format(EPIC, C))
-        ontpf.to_csv(f,index=False)
+        res.to_csv(f,index=False)
     return res
 
 def merge_olivares_members_with_gaia_coordinates(members, gaia):
@@ -132,26 +146,39 @@ def get_gaia_astrometry(center, radius):
     
     Returns:
     --------
-    DataFrame with Gaia catalog
+    DataFrame with Gaia solution within radius
     '''
     from astroquery.gaia import Gaia
     coord = SkyCoord(ra=center[0], dec=center[1], unit=(u.degree, u.degree), frame='icrs')
     r = Gaia.query_object_async(coordinate=coord, radius=radius*u.degree)
     return r.to_pandas()
 
-def select_members_on_tpf(tpf, members):
+def select_members_on_tpf(TPF, members):
     '''
     Use the TargetPixelFile WCS solution to map
-    sky coordinates to 0-based pixel coordinates 
+    sky coordinates to 0-based pixel coordinates
+    
+    Parameters:
+    ------------
+    TPF : KeplerTargetPixelFile
+    
+    members : DataFrame
+        table with coordinates that shall
+        be checked for location on TPF
+        
+    Return:
+    --------
+    Subset of the members table where the entries are located
+    on the TPF. Added x any centroid columns.
     '''
     radec = np.array(list(zip(members.ra,members.dec)), np.float_)
-    cx, cy = tpf.wcs.wcs_world2pix(radec, 0).T #0 indicates we start pixel counting at 0
+    cx, cy = TPF.wcs.wcs_world2pix(radec, 0).T #0 indicates we start pixel counting at 0
     members['xcentroid'] = cx
     members['ycentroid'] = cy
     return members.loc[(members.xcentroid >= 0) & 
-                       (members.xcentroid <= tpf.shape[1]-1) &
+                       (members.xcentroid <= TPF.shape[1]-1) &
                        (members.ycentroid >= 0) &
-                       (members.ycentroid <= tpf.shape[2]-1), :]
+                       (members.ycentroid <= TPF.shape[2]-1), :]
 
 def read_fits_table(path):
     '''
